@@ -4,57 +4,56 @@ Este repositório contém uma implementação de um sistema de análise de senti
 
 - **FP (Frequência de palavras-chave positivas):** Medida da presença e quantidade de palavras com conotação positiva.
 - **FN (Frequência de palavras-chave negativas):** Medida da presença e quantidade de palavras com conotação negativa.
-- **I (Intensificadores):** Palavras que reforçam o grau de emoção.
-- **N (Negações):** Palavras que invertem ou negam o sentido de termos positivos ou negativos.
+- **I (Intensificadores):** Palavras que reforçam ou aumentam o grau de emoção.
+- **N (Negações):** Palavras que invertem ou anulam o sentido de termos positivos ou negativos.
 
-O código utiliza funções de pertinência do tipo triangular e funções "shoulder" para tratar valores extremos, bem como regras fuzzy customizadas que aplicam a lógica de negação e intensificação para definir a polaridade do sentimento.
+O código utiliza funções de pertinência (usando funções triangulares e trapezoidais) para modelar os conjuntos fuzzy e aplica regras de inferência para determinar a polaridade do sentimento em um comentário.
 
 ---
 
 ## Descrição
 
-A análise fuzzy é realizada em diversas etapas:
+O sistema realiza a análise fuzzy em diversas etapas:
 
 1. **Pré-processamento do Texto:**  
-   O texto é convertido para minúsculas, os sinais de pontuação são removidos e ele é tokenizado em palavras.
+   - Converte o texto para minúsculas.
+   - Remove pontuações.
+   - Realiza a tokenização do texto em palavras.
 
 2. **Cálculo de Frequências:**  
-   São calculadas as frequências normalizadas das palavras positivas, negativas, intensificadores e negações. Nesta implementação, a normalização é realizada com base no total de palavras-chave encontradas no texto.
+   - As frequências de palavras positivas, negativas, intensificadores e negações são calculadas de forma normalizada com base no total de palavras-chave encontradas no comentário.
 
-3. **Avaliação das Funções de Pertinência:**  
-   Cada variável (FP, FN, I, N) é associada a conjuntos fuzzy (Baixa, Média e Alta) utilizando funções de pertinência triangulares e funções “shoulder” para capturar corretamente os extremos (valores 0 ou 1).
+3. **Modelagem Fuzzy:**  
+   - Cada variável (FP, FN, I, N) possui funções de pertinência definidas para três conjuntos (low, medium e high).
+   - A variável de saída (Polaridade do Sentimento – PS) também possui funções de pertinência definidas para os conjuntos **negative**, **neutral** e **positive**.
 
-4. **Inferência Fuzzy e Regras:**  
-   São definidas pelo menos 5 regras fuzzy, por exemplo:
-   - **Regra 1:** Se FP é alta e N é baixa → SENTIMENTO POSITIVO.
-   - **Regra 2:** Se FP é alta e N é alta → SENTIMENTO NEGATIVO (inversão de polaridade).
-   - **Regra 3:** Se FN é alta e N é baixa → SENTIMENTO NEGATIVO.
-   - **Regra 4:** Se FN é alta e N é alta → SENTIMENTO POSITIVO (inversão de polaridade).
-   - **Regra 5:** Se FP e FN estão na faixa média → SENTIMENTO NEUTRO.
-
-5. **Classificação Final:**  
-   Após a agregação dos resultados das regras fuzzy, obtém-se um *score* final (valor entre 0 e 1). Com base nesse score, o comentário é classificado:
-   - **NEGATIVO:** Se o score for inferior a 0.35.
-   - **NEUTRO:** Se o score estiver entre 0.35 e 0.65.
-   - **POSITIVO:** Se o score for superior a 0.65.
+4. **Inferência Fuzzy:**  
+   - São definidas regras fuzzy que combinam as variáveis de entrada para inferir a polaridade do sentimento.  
+   - Exemplos de regras incluem:  
+     - Se FP for alta e a presença de intensificadores for alta (e não houver negação) → **POSITIVE**.  
+     - Se FP for alta, mas houver também forte presença de negações sem intensificadores → **NEGATIVE**.  
+     - Se FP e FN estiverem na faixa média, a saída tende para **NEUTRAL**.  
+     - Uma regra adicional trata explicitamente do caso em que há exclusividade de termos positivos, classificando como **POSITIVE**.
 
 ---
 
-## Funcionalidades
+## Integração com scikit-learn e scikit-fuzzy
 
-- **Text Preprocessing:** Conversão para minúsculas, remoção de pontuação e tokenização.
-- **Cálculo de Variáveis Fuzzy:** Extração e normalização das frequências de palavras positivas, negativas, intensificadores e negações.
-- **Funções de Pertinência Customizadas:** Uso de funções triangulares e "shoulder" para refletir melhor os valores extremos.
-- **Inferência Fuzzy:** Aplicação de regras fuzzy para determinar a polaridade do sentimento.
-- **Exemplos de Demonstração:** O script inclui exemplos para testar o sistema com diferentes frases.
+Embora o **scikit-learn** seja uma biblioteca poderosa para tarefas de aprendizado de máquina, ele não possui suporte nativo para a implementação de lógica fuzzy. Para atender a essa necessidade, este projeto integra o **scikit-fuzzy**, uma biblioteca especializada na criação de sistemas de controle fuzzy. 
+
+- **scikit-fuzzy:** Utilizado para definir as variáveis fuzzy, funções de pertinência e regras de inferência de forma modular e inspirada nas estruturas do scikit-learn.  
+- **Complementaridade:** Enquanto o scikit-learn pode ser utilizado para tarefas de pré-processamento e outras análises estatísticas, o scikit-fuzzy cuida da parte fuzzy do sistema, possibilitando uma integração fluida entre técnicas tradicionais de machine learning e lógica fuzzy.
+
+Essa abordagem permite uma aplicação flexível e extensível, onde futuras melhorias poderão incluir uma combinação de técnicas fuzzy com modelos baseados em scikit-learn.
 
 ---
 
 ## Requisitos
 
 - **Python 3.x**
+- **scikit-fuzzy**
+- **numpy**
 
-
----
+Para instalações adicionais ou tarefas de pré-processamento avançado, você pode também integrar o **scikit-learn** no seu fluxo de trabalho, embora a lógica fuzzy deste projeto seja implementada com o scikit-fuzzy.
 
 
