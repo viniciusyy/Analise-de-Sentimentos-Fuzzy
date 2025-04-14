@@ -1,21 +1,43 @@
+import numpy as np
+import skfuzzy as fuzz
+from skfuzzy import control as ctrl
 import re
 
-# Bancos de palavras (ajuste conforme necessário)
-positive_words = ["ótimo", "excelente", "incrível", "fantástico", "maravilhoso", "feliz", "surpreendente", "bonito", "gostei"]
-negative_words = ["péssimo", "horrível", "terrível", "desagradável", "decepcionante", "triste", "frustrante"]
-
-intensifiers = ["muito", "bastante", "extremamente", "incrivelmente", "realmente", "completamente"]
+# ============================================
+# Bancos de Palavras
+# ============================================
+positive_words = [
+    "ótimo", "excelente", "incrível", "fantástico", "maravilhoso",
+    "feliz", "surpreendente", "bonito", "gostei"
+]
+negative_words = [
+    "péssimo", "horrível", "terrível", "desagradável", "decepcionante",
+    "triste", "frustrante"
+]
+intensifiers = [
+    "muito", "bastante", "extremamente", "incrivelmente",
+    "realmente", "completamente"
+]
 negations = ["não", "jamais", "nenhum", "nem", "nada"]
 
-# Função para pré-processar o texto
+# ============================================
+# Funções para Pré-processamento e Cálculo de Frequências
+# ============================================
 def process_text(text):
+    """
+    Converte o texto para minúsculas, remove pontuações e separa em palavras.
+    """
     text = text.lower()
     text = re.sub(r"[^\w\s]", "", text)
     words = text.split()
     return words
 
-# Nova estratégia de normalização: usar o total de palavras-chave encontradas
 def calculate_frequencies(text):
+    """
+    Calcula as frequências normalizadas para palavras positivas (FP),
+    negativas (FN), intensificadores (I) e negações (N) com base no
+    total de palavras-chave encontradas no texto.
+    """
     words = process_text(text)
     
     count_positive = sum(word in positive_words for word in words)
@@ -25,7 +47,7 @@ def calculate_frequencies(text):
     
     total_keywords = count_positive + count_negative + count_intensifier + count_negation
     if total_keywords == 0:
-        return 0, 0, 0, 0
+        return 0, 0, 0, 0  # Evita divisão por zero
     
     FP = count_positive / total_keywords
     FN = count_negative / total_keywords
@@ -34,127 +56,120 @@ def calculate_frequencies(text):
     
     return FP, FN, I, N
 
-# Funções para conjuntos “shoulder” e triangulares
+# ============================================
+# Definição das Variáveis Fuzzy com scikit-fuzzy
+# ============================================
+x_FP = np.arange(0, 1.01, 0.01)
+x_FN = np.arange(0, 1.01, 0.01)
+x_I  = np.arange(0, 1.01, 0.01)
+x_N  = np.arange(0, 1.01, 0.01)
+x_PS = np.arange(0, 1.01, 0.01)  # Polaridade do Sentimento
 
-def left_shoulder(x, b, c):
-    """Função de pertinência para conjunto do tipo left shoulder (inicia em 0)."""
-    if x <= b:
-        return 1.0
-    elif x < c:
-        return (c - x) / (c - b)
-    else:
-        return 0.0
+FP_var = ctrl.Antecedent(x_FP, 'FP')
+FN_var = ctrl.Antecedent(x_FN, 'FN')
+I_var  = ctrl.Antecedent(x_I, 'I')
+N_var  = ctrl.Antecedent(x_N, 'N')
+PS_var = ctrl.Consequent(x_PS, 'PS')
 
-def right_shoulder(x, a, b):
-    """Função de pertinência para conjunto do tipo right shoulder (termina em 1)."""
-    if x >= b:
-        return 1.0
-    elif x > a:
-        return (x - a) / (b - a)
-    else:
-        return 0.0
+# Para cada variável de entrada, usamos trapézio para "low" e "high"
+for var in (FP_var, FN_var, I_var, N_var):
+    var['low'] = fuzz.trapmf(var.universe, [0, 0, 0.15, 0.3])
+    var['medium'] = fuzz.trimf(var.universe, [0.2, 0.4, 0.6])
+    var['high'] = fuzz.trapmf(var.universe, [0.4, 0.7, 1, 1])
 
-def triangle(x, a, b, c):
-    """Função triangular padrão (para o conjunto intermediário)."""
-    if x < a or x > c:
-        return 0.0
-    if x <= b:
-        return (x - a) / (b - a) if (b - a) != 0 else 1.0
-    else:
-        return (c - x) / (c - b) if (c - b) != 0 else 1.0
+# Para a saída, definimos as funções de pertinência
+PS_var['negative'] = fuzz.trapmf(x_PS, [0, 0, 0.15, 0.3])
+PS_var['neutral']  = fuzz.trimf(x_PS, [0.2, 0.4, 0.6])
+PS_var['positive'] = fuzz.trapmf(x_PS, [0.4, 0.7, 1, 1])
 
-# Função para obter os graus de pertinência para uma variável.
-# Os intervalos abaixo foram escolhidos de forma a refletir melhor os valores obtidos:
-#
-# Para FP, FN, I e N:
-#   - Baixa (B): left shoulder de 0 a (b=0.05) e diminui até 0 em c=0.2.
-#   - Média (M): função triangular com intervalo [0.1, 0.25, 0.4].
-#   - Alta (A): right shoulder iniciando em a=0.3, totalmente 1 a partir de b=0.5.
-def get_memberships(value):
-    memberships = {
-        'B': left_shoulder(value, b=0.05, c=0.2),
-        'M': triangle(value, a=0.1, b=0.25, c=0.4),
-        'A': right_shoulder(value, a=0.3, b=0.5)
-    }
-    return memberships
+# ============================================
+# Definição das Regras Fuzzy (atualizadas)
+# ============================================
+# Regra 1: Se FP é alta e I é alta e N é baixa → SENTIMENTO POSITIVE
+rule1 = ctrl.Rule(FP_var['high'] & I_var['high'] & N_var['low'], PS_var['positive'])
+# Regra 2: Se FP é alta e I é alta e N é alta → SENTIMENTO NEGATIVE (inversão)
+rule2 = ctrl.Rule(FP_var['high'] & I_var['high'] & N_var['high'], PS_var['negative'])
+# Regra 3: Se FN é alta e N é baixa → SENTIMENTO NEGATIVE
+rule3 = ctrl.Rule(FN_var['high'] & N_var['low'], PS_var['negative'])
+# Regra 4: Se FN é alta e N é alta → SENTIMENTO POSITIVE (inversão, se aplicável)
+rule4 = ctrl.Rule(FN_var['high'] & N_var['high'], PS_var['positive'])
+# Regra 5: Se FP e FN estão na faixa média → SENTIMENTO NEUTRAL
+rule5 = ctrl.Rule(FP_var['medium'] & FN_var['medium'], PS_var['neutral'])
+# Regra 6: Se FP é alta e N é alta e I é baixa (inversão sem intensificador) → SENTIMENTO NEGATIVE
+rule6 = ctrl.Rule(FP_var['high'] & N_var['high'] & I_var['low'], PS_var['negative'])
+# NOVA Regra 7: Se FP é alta e FN é baixa e I é baixa e N é baixa → SENTIMENTO POSITIVE
+rule7 = ctrl.Rule(FP_var['high'] & FN_var['low'] & I_var['low'] & N_var['low'], PS_var['positive'])
 
-# Nova definição das regras fuzzy para tratar negações corretamente
-def fuzzy_inference(FP, FN, I, N):
-    fp_mem = get_memberships(FP)
-    fn_mem = get_memberships(FN)
-    i_mem = get_memberships(I)
-    n_mem = get_memberships(N)
-    
-    # Função para calcular o mínimo (grau de ativação) de uma regra:
-    def rule_activation(*conditions):
-        return min(conditions)
-    
-    rules = []
-    
-    # Regra 1: Se FP é alta e N é baixa (ausência de negação) → SENTIMENTO POSITIVO
-    activation_r1 = rule_activation(fp_mem['A'], left_shoulder(N, b=0.05, c=0.2))
-    rules.append((activation_r1, 0.8))
-    
-    # Regra 2: Se FP é alta e N é alta (negação presente) → SENTIMENTO NEGATIVO
-    activation_r2 = rule_activation(fp_mem['A'], right_shoulder(N, a=0.3, b=0.5))
-    rules.append((activation_r2, 0.2))
-    
-    # Regra 3: Se FN é alta e N é baixa → SENTIMENTO NEGATIVO
-    activation_r3 = rule_activation(fn_mem['A'], left_shoulder(N, b=0.05, c=0.2))
-    rules.append((activation_r3, 0.2))
-    
-    # Regra 4: Se FN é alta e N é alta → SENTIMENTO POSITIVO
-    activation_r4 = rule_activation(fn_mem['A'], right_shoulder(N, a=0.3, b=0.5))
-    rules.append((activation_r4, 0.8))
-    
-    # Regra 5: Se FP e FN estão na faixa média (independente de intensificadores ou negações) → SENTIMENTO NEUTRO
-    activation_r5 = rule_activation(get_memberships(FP)['M'], get_memberships(FN)['M'])
-    rules.append((activation_r5, 0.5))
-    
-    numerator = sum(act * out for act, out in rules)
-    denominator = sum(act for act, _ in rules)
-    
-    if denominator == 0:
-        final_score = 0.5
-    else:
-        final_score = numerator / denominator
-    
-    return final_score, rules
+# Criação do sistema de controle fuzzy com as regras definidas
+sentiment_ctrl = ctrl.ControlSystem([rule1, rule2, rule3, rule4, rule5, rule6, rule7])
 
-def classify_sentiment(score):
+# ============================================
+# Função de Análise Fuzzy (usando scikit-fuzzy)
+# ============================================
+def fuzzy_sentiment_scikit(text):
+    """
+    Realiza a análise de sentimentos de um texto utilizando o sistema fuzzy.
+    Calcula as frequências FP, FN, I e N, cria uma nova instância do simulador,
+    realiza a inferência fuzzy e classifica o sentimento.
+    
+    Se nenhuma regra for acionada, assume um valor padrão de 0.5 (neutral).
+    """
+    FP_val, FN_val, I_val, N_val = calculate_frequencies(text)
+    simulation = ctrl.ControlSystemSimulation(sentiment_ctrl)
+    simulation.input['FP'] = FP_val
+    simulation.input['FN'] = FN_val
+    simulation.input['I'] = I_val
+    simulation.input['N'] = N_val
+    
+    simulation.compute()
+    try:
+        score = simulation.output['PS']
+    except KeyError:
+        score = 0.5  # Valor padrão se nenhum resultado for definido
+    
     if score < 0.35:
-        return "NEGATIVO"
+        sentiment = 'NEGATIVE'
     elif score < 0.65:
-        return "NEUTRO"
+        sentiment = 'NEUTRAL'
     else:
-        return "POSITIVO"
-
-def fuzzy_sentiment_analysis(text):
-    FP, FN, I, N = calculate_frequencies(text)
-    score, applied_rules = fuzzy_inference(FP, FN, I, N)
-    sentiment = classify_sentiment(score)
+        sentiment = 'POSITIVE'
     
     print("Texto analisado: ", text)
-    print("Frequência de palavras positivas (FP): {:.2f}".format(FP))
-    print("Frequência de palavras negativas (FN): {:.2f}".format(FN))
-    print("Frequência de intensificadores (I): {:.2f}".format(I))
-    print("Frequência de negações (N): {:.2f}".format(N))
-    print("\nRegras Fuzzy aplicadas:")
-    for idx, (activation, output) in enumerate(applied_rules, start=1):
-        print("  Regra {}: grau de ativação = {:.2f}, saída = {:.2f}".format(idx, activation, output))
-    print("\nScore final fuzzy: {:.2f}".format(score))
+    print("Frequência de palavras positivas (FP): {:.2f}".format(FP_val))
+    print("Frequência de palavras negativas (FN): {:.2f}".format(FN_val))
+    print("Frequência de intensificadores (I): {:.2f}".format(I_val))
+    print("Frequência de negações (N): {:.2f}".format(N_val))
+    print("Score fuzzy (PS): {:.2f}".format(score))
     print("Classificação do sentimento: {}\n".format(sentiment))
+    
     return sentiment
 
-# Demonstração com exemplos:
-if __name__ == "__main__":
-    # Comentário positivo sem negação:
-    texto1 = "Este gato é muito bonito"
-    fuzzy_sentiment_analysis(texto1)
+# ============================================
+# Demonstração com Exemplos
+# ============================================
+if __name__ == '__main__':
+    # Exemplo 1: Comentário positivo sem inversão de sentido
+    texto1 = "O livro é incrível e maravilhoso"
+    fuzzy_sentiment_scikit(texto1)
     
-    # Comentário com negação: "Não gostei deste filme"
-    texto2 = "O dia está passando normalmente"
-    fuzzy_sentiment_analysis(texto2)
+    # Exemplo 2: Comentário com inversão (esperado: NEGATIVE)
+    texto2 = "Não gostei deste filme"
+    fuzzy_sentiment_scikit(texto2)
+    
+    # Exemplo 3: Frase neutra
+    texto3 = "Nada de bom aconteceu"
+    fuzzy_sentiment_scikit(texto3)
 
-    texto3 = "Esse produto é incrível e maravilhoso"
-    fuzzy_sentiment_analysis(texto3)
+    texto4= "Completamente feliz com o resultado"
+    fuzzy_sentiment_scikit(texto4)
+
+    texto5 = "O atendimento foi péssimo e frustrante"
+    fuzzy_sentiment_scikit(texto5)
+
+    texto6 = "Nem gostei, nem me apaixonei pelo livro"
+    fuzzy_sentiment_scikit(texto6)
+
+    texto7 = "Esse restaurante é fantástico e o atendimento é excelente"
+    fuzzy_sentiment_scikit(texto7)
+    
+
